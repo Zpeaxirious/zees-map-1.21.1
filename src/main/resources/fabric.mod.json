@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "zees-map",
+	"version": "${version}",
+	"name": "Zee's Map",
+	"description": "This is yet another minimap mod.",
+	"authors": [
+		"Zpeaxirious"
+	],
+	"contact": {
+		"homepage": "https://yumeverse.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/zees-map/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"net.yumeverse.zeesmap.ZeesMap"
+		],
+		"client": [
+			"net.yumeverse.zeesmap.ZeesMapClient"
+		]
+	},
+	"mixins": [
+		"zees-map.mixins.json",
+		{
+			"config": "zees-map.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.16.14",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
