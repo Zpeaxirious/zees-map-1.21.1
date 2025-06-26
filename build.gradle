@@ -34,8 +34,6 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-	clientImplementation sourceSets.client.output
 	
 }
 
@@ -43,7 +41,7 @@ processResources {
 	inputs.property "version", project.version
 
 	filesMatching("fabric.mod.json") {
-		expand "version": inputs.properties.version
+		expand "version": properties.version
 	}
 }
 
@@ -72,7 +70,7 @@ jar {
 // configure the maven publication
 publishing {
 	publications {
-		create("mavenJava", MavenPublication) {
+		maven(MavenPublication) {
 			artifactId = project.archives_base_name
 			from components.java
 		}
