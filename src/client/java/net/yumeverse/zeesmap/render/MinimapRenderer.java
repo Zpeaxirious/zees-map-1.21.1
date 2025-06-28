@@ -33,6 +33,9 @@ public class MinimapRenderer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null || client.world == null) return;
 
+        // Ensure we're in a valid rendering state
+        if (client.isPaused() || client.options.hudHidden) return;
+
         int screenWidth = client.getWindow().getScaledWidth();
         int screenHeight = client.getWindow().getScaledHeight();
 
@@ -46,6 +49,14 @@ public class MinimapRenderer {
             MAP_COLOR_CACHE.clear();
             lastCacheUpdate = currentTime;
         }
+
+        // Save current GL state
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+
+        // Push matrix state
+        context.getMatrices().push();
 
         // Draw minimap background (black circle)
         drawCircleBackground(context, minimapX, minimapY);
@@ -64,12 +75,16 @@ public class MinimapRenderer {
 
         // Draw coordinates
         drawCoordinates(context, client, minimapX, minimapY + MINIMAP_SIZE + 5);
+
+        // Restore matrix state
+        context.getMatrices().pop();
+
+        // Restore GL state
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
     }
 
     private static void drawCircleBackground(DrawContext context, int x, int y) {
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-
         Matrix4f matrix = context.getMatrices().peek().getPositionMatrix();
         BufferBuilder buffer = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLE_FAN, VertexFormats.POSITION_COLOR);
 
@@ -85,7 +100,6 @@ public class MinimapRenderer {
         }
 
         BufferRenderer.drawWithGlobalProgram(buffer.end());
-        RenderSystem.disableBlend();
     }
 
     private static void renderMapStyleWorld(DrawContext context, MinecraftClient client, int minimapX, int minimapY, float tickDelta) {
@@ -94,9 +108,6 @@ public class MinimapRenderer {
 
         double playerX = client.player.getX();
         double playerZ = client.player.getZ();
-
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
 
         Matrix4f matrix = context.getMatrices().peek().getPositionMatrix();
         BufferBuilder buffer = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
@@ -148,7 +159,6 @@ public class MinimapRenderer {
         }
 
         BufferRenderer.drawWithGlobalProgram(buffer.end());
-        RenderSystem.disableBlend();
     }
 
     private static int getMapStyleColor(World world, BlockPos pos) {
@@ -403,9 +413,6 @@ public class MinimapRenderer {
     }
 
     private static void drawMinimapBorder(DrawContext context, int x, int y) {
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-
         Matrix4f matrix = context.getMatrices().peek().getPositionMatrix();
         BufferBuilder buffer = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLE_STRIP, VertexFormats.POSITION_COLOR);
 
@@ -425,7 +432,6 @@ public class MinimapRenderer {
         }
 
         BufferRenderer.drawWithGlobalProgram(buffer.end());
-        RenderSystem.disableBlend();
     }
 
     private static void drawPlayerArrow(DrawContext context, int centerX, int centerY, float yaw) {
@@ -442,10 +448,7 @@ public class MinimapRenderer {
         buffer.vertex(matrix, -4, 4, 0).color(1.0f, 1.0f, 1.0f, 1.0f);
         buffer.vertex(matrix, 4, 4, 0).color(1.0f, 1.0f, 1.0f, 1.0f);
 
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
         BufferRenderer.drawWithGlobalProgram(buffer.end());
-        RenderSystem.disableBlend();
 
         context.getMatrices().pop();
     }
@@ -494,10 +497,7 @@ public class MinimapRenderer {
         buffer.vertex(matrix, x + size, y + size, 0).color(r, g, b, 1.0f);
         buffer.vertex(matrix, x - size, y + size, 0).color(r, g, b, 1.0f);
 
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
         BufferRenderer.drawWithGlobalProgram(buffer.end());
-        RenderSystem.disableBlend();
     }
 
     private static void drawCoordinates(DrawContext context, MinecraftClient client, int x, int y) {
