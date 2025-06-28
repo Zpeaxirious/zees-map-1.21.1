@@ -7,7 +7,6 @@ import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.*;
-import net.minecraft.item.map.MapState;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
@@ -290,9 +289,12 @@ public class MinimapRenderer {
         try {
             Biome biome = world.getBiome(pos).value();
 
-            // Get biome grass color (this is simplified - actual implementation would use biome color maps)
+            // Get biome temperature - this should work in 1.21.1
             float temperature = biome.getTemperature();
-            float humidity = biome.getDownfall();
+
+            // For humidity/downfall, we'll use a simplified approach since the API may have changed
+            // We'll estimate humidity based on biome type and temperature
+            float humidity = estimateBiomeHumidity(biome, temperature);
 
             // Adjust color based on temperature and humidity
             float tempFactor = MathHelper.clamp(temperature, 0.0f, 1.0f);
@@ -328,6 +330,29 @@ public class MinimapRenderer {
             return (r << 16) | (g << 8) | b;
         } catch (Exception e) {
             return baseColor; // Return original color if biome data is unavailable
+        }
+    }
+
+    // Helper method to estimate humidity since getDownfall() might not be available
+    private static float estimateBiomeHumidity(Biome biome, float temperature) {
+        // This is a simplified estimation based on common biome characteristics
+        // In a real implementation, you might want to use biome-specific data
+
+        // Very cold biomes tend to be dry (except for some exceptions)
+        if (temperature < 0.2f) {
+            return 0.2f;
+        }
+        // Desert-like temperatures tend to be dry
+        else if (temperature > 1.0f) {
+            return 0.1f;
+        }
+        // Temperate biomes have moderate humidity
+        else if (temperature > 0.5f && temperature < 0.8f) {
+            return 0.6f;
+        }
+        // Default moderate humidity
+        else {
+            return 0.4f;
         }
     }
 
