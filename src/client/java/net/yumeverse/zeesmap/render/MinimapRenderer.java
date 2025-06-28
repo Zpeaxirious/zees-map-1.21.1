@@ -2,15 +2,17 @@ package net.yumeverse.zeesmap.render;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.*;
-import net.minecraft.util.Identifier;
+import net.minecraft.item.map.MapState;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.Biome;
+import net.minecraft.world.chunk.WorldChunk;
 import net.yumeverse.zeesmap.storage.WaypointStorage;
 import org.joml.Matrix4f;
 
@@ -22,55 +24,10 @@ public class MinimapRenderer {
     private static final int MINIMAP_RADIUS = MINIMAP_SIZE / 2;
     private static final int RENDER_DISTANCE = 64; // blocks to render in each direction
 
-    // Cache for block colors to avoid recalculating
-    private static final Map<Block, Integer> BLOCK_COLOR_CACHE = new HashMap<>();
-
-    // Player arrow texture (we'll draw this manually)
-    private static final Identifier WAYPOINT_ICON = Identifier.of("zees-map", "textures/gui/waypoint_icon.png");
-
-    static {
-        initializeBlockColors();
-    }
-
-    private static void initializeBlockColors() {
-        // Basic block colors - you can expand this
-        BLOCK_COLOR_CACHE.put(Blocks.GRASS_BLOCK, 0x7CB342);
-        BLOCK_COLOR_CACHE.put(Blocks.DIRT, 0x8D6E63);
-        BLOCK_COLOR_CACHE.put(Blocks.STONE, 0x9E9E9E);
-        BLOCK_COLOR_CACHE.put(Blocks.WATER, 0x2196F3);
-        BLOCK_COLOR_CACHE.put(Blocks.SAND, 0xF5DEB3);
-        BLOCK_COLOR_CACHE.put(Blocks.SNOW, 0xFFFFFF);
-        BLOCK_COLOR_CACHE.put(Blocks.ICE, 0xB3E5FC);
-        BLOCK_COLOR_CACHE.put(Blocks.LAVA, 0xFF5722);
-        BLOCK_COLOR_CACHE.put(Blocks.COBBLESTONE, 0x757575);
-        BLOCK_COLOR_CACHE.put(Blocks.BEDROCK, 0x424242);
-        BLOCK_COLOR_CACHE.put(Blocks.COAL_ORE, 0x37474F);
-        BLOCK_COLOR_CACHE.put(Blocks.IRON_ORE, 0xBCAAA4);
-        BLOCK_COLOR_CACHE.put(Blocks.GOLD_ORE, 0xFFD600);
-        BLOCK_COLOR_CACHE.put(Blocks.DIAMOND_ORE, 0x4FC3F7);
-        BLOCK_COLOR_CACHE.put(Blocks.EMERALD_ORE, 0x4CAF50);
-        BLOCK_COLOR_CACHE.put(Blocks.REDSTONE_ORE, 0xF44336);
-        BLOCK_COLOR_CACHE.put(Blocks.DEEPSLATE, 0x4A4A4A);
-        BLOCK_COLOR_CACHE.put(Blocks.NETHERRACK, 0x8D4A4A);
-        BLOCK_COLOR_CACHE.put(Blocks.END_STONE, 0xFFF8E1);
-        BLOCK_COLOR_CACHE.put(Blocks.OAK_LOG, 0x8D6E63);
-        BLOCK_COLOR_CACHE.put(Blocks.OAK_LEAVES, 0x66BB6A);
-        BLOCK_COLOR_CACHE.put(Blocks.BIRCH_LOG, 0xF5F5DC);
-        BLOCK_COLOR_CACHE.put(Blocks.BIRCH_LEAVES, 0x8BC34A);
-        BLOCK_COLOR_CACHE.put(Blocks.SPRUCE_LOG, 0x5D4037);
-        BLOCK_COLOR_CACHE.put(Blocks.SPRUCE_LEAVES, 0x2E7D32);
-        BLOCK_COLOR_CACHE.put(Blocks.JUNGLE_LOG, 0x8D6E63);
-        BLOCK_COLOR_CACHE.put(Blocks.JUNGLE_LEAVES, 0x43A047);
-        BLOCK_COLOR_CACHE.put(Blocks.ACACIA_LOG, 0xD84315);
-        BLOCK_COLOR_CACHE.put(Blocks.ACACIA_LEAVES, 0x689F38);
-        BLOCK_COLOR_CACHE.put(Blocks.DARK_OAK_LOG, 0x3E2723);
-        BLOCK_COLOR_CACHE.put(Blocks.DARK_OAK_LEAVES, 0x1B5E20);
-        BLOCK_COLOR_CACHE.put(Blocks.CHERRY_LOG, 0xF8BBD9);
-        BLOCK_COLOR_CACHE.put(Blocks.CHERRY_LEAVES, 0xF48FB1);
-        BLOCK_COLOR_CACHE.put(Blocks.MANGROVE_LOG, 0x8D6E63);
-        BLOCK_COLOR_CACHE.put(Blocks.MANGROVE_LEAVES, 0x4CAF50);
-        BLOCK_COLOR_CACHE.put(Blocks.BAMBOO, 0x8BC34A);
-    }
+    // Cache for map colors to improve performance
+    private static final Map<BlockPos, Integer> MAP_COLOR_CACHE = new HashMap<>();
+    private static long lastCacheUpdate = 0;
+    private static final long CACHE_UPDATE_INTERVAL = 1000; // Update cache every second
 
     public static void render(DrawContext context, float tickDelta) {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -83,11 +40,18 @@ public class MinimapRenderer {
         int minimapX = screenWidth - MINIMAP_SIZE - 10;
         int minimapY = 10;
 
+        // Clear old cache periodically
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastCacheUpdate > CACHE_UPDATE_INTERVAL) {
+            MAP_COLOR_CACHE.clear();
+            lastCacheUpdate = currentTime;
+        }
+
         // Draw minimap background (black circle)
         drawCircleBackground(context, minimapX, minimapY);
 
-        // Render the world from above
-        renderWorldFromAbove(context, client, minimapX, minimapY, tickDelta);
+        // Render the world using map-style colors
+        renderMapStyleWorld(context, client, minimapX, minimapY, tickDelta);
 
         // Draw minimap border
         drawMinimapBorder(context, minimapX, minimapY);
@@ -103,7 +67,6 @@ public class MinimapRenderer {
     }
 
     private static void drawCircleBackground(DrawContext context, int x, int y) {
-        // Draw black circle background
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
 
@@ -125,13 +88,12 @@ public class MinimapRenderer {
         RenderSystem.disableBlend();
     }
 
-    private static void renderWorldFromAbove(DrawContext context, MinecraftClient client, int minimapX, int minimapY, float tickDelta) {
+    private static void renderMapStyleWorld(DrawContext context, MinecraftClient client, int minimapX, int minimapY, float tickDelta) {
         World world = client.world;
         if (world == null) return;
 
         double playerX = client.player.getX();
         double playerZ = client.player.getZ();
-        int playerY = (int) client.player.getY();
 
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -157,11 +119,10 @@ public class MinimapRenderer {
 
                 if (distFromCenter > MINIMAP_RADIUS) continue;
 
-                // Get the top block at this position
-                BlockPos pos = new BlockPos(worldX, playerY, worldZ);
-                Block topBlock = getTopBlock(world, pos);
+                // Get map-style color for this position
+                BlockPos pos = new BlockPos(worldX, 0, worldZ);
+                int color = getMapStyleColor(world, pos);
 
-                int color = getBlockColor(topBlock, world, pos);
                 float r = ((color >> 16) & 0xFF) / 255.0f;
                 float g = ((color >> 8) & 0xFF) / 255.0f;
                 float b = (color & 0xFF) / 255.0f;
@@ -180,38 +141,194 @@ public class MinimapRenderer {
         RenderSystem.disableBlend();
     }
 
-    private static Block getTopBlock(World world, BlockPos startPos) {
-        // Search down from a reasonable height to find the top solid block
-        for (int y = Math.min(startPos.getY() + 10, world.getTopY()); y >= world.getBottomY(); y--) {
-            BlockPos pos = new BlockPos(startPos.getX(), y, startPos.getZ());
-            Block block = world.getBlockState(pos).getBlock();
-
-            if (!block.equals(Blocks.AIR) && !block.equals(Blocks.CAVE_AIR)) {
-                return block;
-            }
+    private static int getMapStyleColor(World world, BlockPos pos) {
+        // Check cache first
+        if (MAP_COLOR_CACHE.containsKey(pos)) {
+            return MAP_COLOR_CACHE.get(pos);
         }
-        return Blocks.STONE; // Default fallback
+
+        int color = calculateMapColor(world, pos);
+        MAP_COLOR_CACHE.put(pos, color);
+        return color;
     }
 
-    private static int getBlockColor(Block block, World world, BlockPos pos) {
-        // Check cache first
-        if (BLOCK_COLOR_CACHE.containsKey(block)) {
-            return BLOCK_COLOR_CACHE.get(block);
-        }
+    private static int calculateMapColor(World world, BlockPos basePos) {
+        // Find the top solid block at this position
+        BlockPos.Mutable mutablePos = new BlockPos.Mutable(basePos.getX(), world.getTopY(), basePos.getZ());
+        BlockState topBlockState = null;
+        int topY = world.getBottomY();
 
-        // For grass blocks, try to get biome color
-        if (block.equals(Blocks.GRASS_BLOCK)) {
-            try {
-                Biome biome = world.getBiome(pos).value();
-                // This is a simplified approach - you could implement proper biome coloring
-                return 0x7CB342; // Default grass color
-            } catch (Exception e) {
-                return 0x7CB342;
+        // Search down to find the first non-air block
+        for (int y = world.getTopY(); y >= world.getBottomY(); y--) {
+            mutablePos.setY(y);
+            BlockState state = world.getBlockState(mutablePos);
+
+            if (!state.isAir() && !state.getBlock().equals(Blocks.CAVE_AIR)) {
+                topBlockState = state;
+                topY = y;
+                break;
             }
         }
+
+        if (topBlockState == null) {
+            return 0x8E8E8E; // Default gray for void areas
+        }
+
+        // Get base color from block
+        int baseColor = getBlockMapColor(topBlockState.getBlock(), world, mutablePos.setY(topY));
+
+        // Apply height-based shading similar to Minecraft maps
+        int heightDiff = topY - 64; // Sea level reference
+        float shadeFactor = 1.0f + (heightDiff * 0.01f); // Subtle height shading
+        shadeFactor = MathHelper.clamp(shadeFactor, 0.3f, 1.7f);
+
+        // Apply biome tinting for certain blocks
+        if (topBlockState.getBlock().equals(Blocks.GRASS_BLOCK) ||
+                topBlockState.getBlock().equals(Blocks.OAK_LEAVES) ||
+                topBlockState.getBlock().equals(Blocks.BIRCH_LEAVES)) {
+            baseColor = applyBiomeTint(baseColor, world, mutablePos);
+        }
+
+        // Apply shading
+        int r = (int) (((baseColor >> 16) & 0xFF) * shadeFactor);
+        int g = (int) (((baseColor >> 8) & 0xFF) * shadeFactor);
+        int b = (int) ((baseColor & 0xFF) * shadeFactor);
+
+        r = MathHelper.clamp(r, 0, 255);
+        g = MathHelper.clamp(g, 0, 255);
+        b = MathHelper.clamp(b, 0, 255);
+
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private static int getBlockMapColor(Block block, World world, BlockPos pos) {
+        // Water and liquids
+        if (block.equals(Blocks.WATER)) return 0x4A6EF7;
+        if (block.equals(Blocks.LAVA)) return 0xFF4000;
+        if (block.equals(Blocks.ICE) || block.equals(Blocks.PACKED_ICE) || block.equals(Blocks.BLUE_ICE)) return 0xA0C4E4;
+
+        // Grass and vegetation
+        if (block.equals(Blocks.GRASS_BLOCK)) return 0x7CB342;
+        if (block.equals(Blocks.DIRT) || block.equals(Blocks.COARSE_DIRT)) return 0x976F3A;
+        if (block.equals(Blocks.PODZOL)) return 0x594A2E;
+        if (block.equals(Blocks.MYCELIUM)) return 0x705D75;
+
+        // Sand and desert
+        if (block.equals(Blocks.SAND)) return 0xF7E9A3;
+        if (block.equals(Blocks.RED_SAND)) return 0xD68C59;
+        if (block.equals(Blocks.SANDSTONE)) return 0xF7E9A3;
+        if (block.equals(Blocks.RED_SANDSTONE)) return 0xD68C59;
+
+        // Stone and ores
+        if (block.equals(Blocks.STONE) || block.equals(Blocks.COBBLESTONE)) return 0x999999;
+        if (block.equals(Blocks.DEEPSLATE) || block.equals(Blocks.COBBLED_DEEPSLATE)) return 0x646464;
+        if (block.equals(Blocks.GRANITE)) return 0x9F6A42;
+        if (block.equals(Blocks.DIORITE)) return 0xC4C4C4;
+        if (block.equals(Blocks.ANDESITE)) return 0x8A8A8A;
+        if (block.equals(Blocks.BEDROCK)) return 0x565656;
+
+        // Snow and ice
+        if (block.equals(Blocks.SNOW) || block.equals(Blocks.SNOW_BLOCK) || block.equals(Blocks.POWDER_SNOW)) return 0xFFFEFE;
+
+        // Wood and leaves
+        if (block.equals(Blocks.OAK_LOG) || block.equals(Blocks.OAK_WOOD)) return 0x976F3A;
+        if (block.equals(Blocks.BIRCH_LOG) || block.equals(Blocks.BIRCH_WOOD)) return 0xD7CA8B;
+        if (block.equals(Blocks.SPRUCE_LOG) || block.equals(Blocks.SPRUCE_WOOD)) return 0x6B4423;
+        if (block.equals(Blocks.JUNGLE_LOG) || block.equals(Blocks.JUNGLE_WOOD)) return 0x976F3A;
+        if (block.equals(Blocks.ACACIA_LOG) || block.equals(Blocks.ACACIA_WOOD)) return 0xBA7E53;
+        if (block.equals(Blocks.DARK_OAK_LOG) || block.equals(Blocks.DARK_OAK_WOOD)) return 0x4A2F17;
+        if (block.equals(Blocks.CHERRY_LOG) || block.equals(Blocks.CHERRY_WOOD)) return 0xE8B4CB;
+        if (block.equals(Blocks.MANGROVE_LOG) || block.equals(Blocks.MANGROVE_WOOD)) return 0x7A5543;
+
+        // Leaves
+        if (block.equals(Blocks.OAK_LEAVES)) return 0x59AE30;
+        if (block.equals(Blocks.BIRCH_LEAVES)) return 0x8DB360;
+        if (block.equals(Blocks.SPRUCE_LEAVES)) return 0x619A3C;
+        if (block.equals(Blocks.JUNGLE_LEAVES)) return 0x30B95A;
+        if (block.equals(Blocks.ACACIA_LEAVES)) return 0x9CAB3C;
+        if (block.equals(Blocks.DARK_OAK_LEAVES)) return 0x2D5016;
+        if (block.equals(Blocks.CHERRY_LEAVES)) return 0xF2B2D6;
+        if (block.equals(Blocks.MANGROVE_LEAVES)) return 0x59AE30;
+
+        // Nether blocks
+        if (block.equals(Blocks.NETHERRACK)) return 0x7A342A;
+        if (block.equals(Blocks.NETHER_BRICKS)) return 0x2C1414;
+        if (block.equals(Blocks.SOUL_SAND) || block.equals(Blocks.SOUL_SOIL)) return 0x4C3426;
+        if (block.equals(Blocks.CRIMSON_NYLIUM)) return 0x943F61;
+        if (block.equals(Blocks.WARPED_NYLIUM)) return 0x167E86;
+
+        // End blocks
+        if (block.equals(Blocks.END_STONE)) return 0xE0D99A;
+        if (block.equals(Blocks.PURPUR_BLOCK)) return 0xAB8AAB;
+
+        // Ores (more vibrant colors for visibility)
+        if (block.equals(Blocks.COAL_ORE) || block.equals(Blocks.DEEPSLATE_COAL_ORE)) return 0x343434;
+        if (block.equals(Blocks.IRON_ORE) || block.equals(Blocks.DEEPSLATE_IRON_ORE)) return 0xD8AF93;
+        if (block.equals(Blocks.GOLD_ORE) || block.equals(Blocks.DEEPSLATE_GOLD_ORE)) return 0xFCEE4B;
+        if (block.equals(Blocks.DIAMOND_ORE) || block.equals(Blocks.DEEPSLATE_DIAMOND_ORE)) return 0x5CDBD5;
+        if (block.equals(Blocks.EMERALD_ORE) || block.equals(Blocks.DEEPSLATE_EMERALD_ORE)) return 0x00D93A;
+        if (block.equals(Blocks.REDSTONE_ORE) || block.equals(Blocks.DEEPSLATE_REDSTONE_ORE)) return 0xD93A00;
+        if (block.equals(Blocks.LAPIS_ORE) || block.equals(Blocks.DEEPSLATE_LAPIS_ORE)) return 0x4A4AFF;
+        if (block.equals(Blocks.COPPER_ORE) || block.equals(Blocks.DEEPSLATE_COPPER_ORE)) return 0xFF6A00;
+
+        // Clay
+        if (block.equals(Blocks.CLAY)) return 0xA3A3A3;
+
+        // Concrete and terracotta (various colors)
+        if (block.equals(Blocks.WHITE_CONCRETE) || block.equals(Blocks.WHITE_TERRACOTTA)) return 0xD5D5D5;
+        if (block.equals(Blocks.BLACK_CONCRETE) || block.equals(Blocks.BLACK_TERRACOTTA)) return 0x1D1D1D;
+        if (block.equals(Blocks.RED_CONCRETE) || block.equals(Blocks.RED_TERRACOTTA)) return 0xB02E26;
+        if (block.equals(Blocks.GREEN_CONCRETE) || block.equals(Blocks.GREEN_TERRACOTTA)) return 0x5E7C16;
+        if (block.equals(Blocks.BLUE_CONCRETE) || block.equals(Blocks.BLUE_TERRACOTTA)) return 0x3C44AA;
+        if (block.equals(Blocks.YELLOW_CONCRETE) || block.equals(Blocks.YELLOW_TERRACOTTA)) return 0xF9D71C;
 
         // Default color for unknown blocks
         return 0x8E8E8E;
+    }
+
+    private static int applyBiomeTint(int baseColor, World world, BlockPos pos) {
+        try {
+            Biome biome = world.getBiome(pos).value();
+
+            // Get biome grass color (this is simplified - actual implementation would use biome color maps)
+            float temperature = biome.getTemperature();
+            float humidity = biome.getDownfall();
+
+            // Adjust color based on temperature and humidity
+            float tempFactor = MathHelper.clamp(temperature, 0.0f, 1.0f);
+            float humidityFactor = MathHelper.clamp(humidity, 0.0f, 1.0f);
+
+            int r = (baseColor >> 16) & 0xFF;
+            int g = (baseColor >> 8) & 0xFF;
+            int b = baseColor & 0xFF;
+
+            // Cool biomes tend to be more blue-green
+            if (temperature < 0.3f) {
+                g = (int) (g * 0.9f);
+                b = (int) (b * 1.1f);
+            }
+            // Hot biomes tend to be more yellow-brown
+            else if (temperature > 0.8f) {
+                r = (int) (r * 1.1f);
+                g = (int) (g * 0.95f);
+                b = (int) (b * 0.8f);
+            }
+
+            // Dry biomes are less vibrant
+            if (humidity < 0.3f) {
+                r = (int) (r * 0.9f);
+                g = (int) (g * 0.85f);
+                b = (int) (b * 0.8f);
+            }
+
+            r = MathHelper.clamp(r, 0, 255);
+            g = MathHelper.clamp(g, 0, 255);
+            b = MathHelper.clamp(b, 0, 255);
+
+            return (r << 16) | (g << 8) | b;
+        } catch (Exception e) {
+            return baseColor; // Return original color if biome data is unavailable
+        }
     }
 
     private static void drawMinimapBorder(DrawContext context, int x, int y) {
